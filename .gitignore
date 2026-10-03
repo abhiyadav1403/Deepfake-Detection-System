@@ -1,0 +1,31 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Large ML models
+*.pth
+*.pt
+*.h5
+*.onnx
+
+# Dataset
+dataset/
+datasets/
+test_videos/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+
+# VS Code
+.vscode/
