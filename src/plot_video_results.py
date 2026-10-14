@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 # =========================================================
-# Project paths
+# 1. Project paths
 # =========================================================
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -24,54 +24,74 @@ OUTPUT_PATH = (
 
 
 # =========================================================
-# Load CSV
+# 2. Load CSV
 # =========================================================
 
-df = pd.read_csv(CSV_PATH)
+df = pd.read_csv(
+    CSV_PATH
+)
+
+
+print("CSV loaded successfully.")
+
+print()
+print("Columns:")
+print(df.columns.tolist())
+
+print()
+print("Number of sampled frames:")
+print(len(df))
 
 
 # =========================================================
-# Create plot
+# 3. Create probability plot
 # =========================================================
 
-plt.figure(figsize=(12, 6))
+plt.figure(
+    figsize=(12, 6)
+)
 
 plt.plot(
-    df["Frame"],
+    df["Time_Seconds"],
     df["Fake_Probability"],
-    marker="o",
     label="Fake Probability"
 )
 
 plt.plot(
-    df["Frame"],
+    df["Time_Seconds"],
     df["Real_Probability"],
-    marker="o",
     label="Real Probability"
 )
 
 
 # =========================================================
-# Labels
+# 4. Labels and title
 # =========================================================
 
-plt.xlabel("Video Frame")
+plt.xlabel(
+    "Time (seconds)"
+)
 
-plt.ylabel("Probability (%)")
+plt.ylabel(
+    "Probability (%)"
+)
 
 plt.title(
-    "Deepfake Detection Probability Across Video Frames"
+    "Deepfake Video Detection - Frame Probabilities"
 )
 
 plt.legend()
 
-plt.grid(True)
+plt.grid(
+    True,
+    alpha=0.3
+)
 
 plt.tight_layout()
 
 
 # =========================================================
-# Save
+# 5. Save plot
 # =========================================================
 
 plt.savefig(
@@ -81,9 +101,12 @@ plt.savefig(
 
 plt.show()
 
-print("=" * 50)
-print("Probability graph created successfully.")
-print("=" * 50)
 
-print(f"Input CSV : {CSV_PATH}")
-print(f"Output    : {OUTPUT_PATH}")
+print()
+print(
+    f"Plot saved to:"
+)
+
+print(
+    OUTPUT_PATH
+)

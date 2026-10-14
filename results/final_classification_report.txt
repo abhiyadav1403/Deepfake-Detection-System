@@ -1,0 +1,16 @@
+DEEPFAKE DETECTION - FINAL MODEL EVALUATION
+============================================================
+
+Model: EfficientNet-B0 Fine-Tuned
+Input: Full Image
+Test Accuracy: 65.15%
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Fake     0.6350    0.6042    0.6192       144
+        Real     0.6647    0.6933    0.6787       163
+
+    accuracy                         0.6515       307
+   macro avg     0.6499    0.6487    0.6489       307
+weighted avg     0.6508    0.6515    0.6508       307
