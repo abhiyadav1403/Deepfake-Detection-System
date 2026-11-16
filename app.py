@@ -1,18 +1,16 @@
+
 from pathlib import Path
 
 import cv2
-import numpy as np
 import torch
 import torch.nn as nn
-import gradio as gr
-
 from PIL import Image
 from torchvision import models, transforms
 
 
-# =========================================================
+# =====================================================
 # 1. PROJECT PATHS
-# =========================================================
+# =====================================================
 
 PROJECT_DIR = Path(__file__).resolve().parent
 
@@ -22,10 +20,12 @@ MODEL_PATH = (
     / "deepfake_efficientnet_b0_final.pth"
 )
 
+IMAGE_DIR = PROJECT_DIR / "test_images"
 
-# =========================================================
+
+# =====================================================
 # 2. DEVICE
-# =========================================================
+# =====================================================
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
@@ -34,35 +34,22 @@ DEVICE = torch.device(
 print("Device:", DEVICE)
 
 
-# =========================================================
-# 3. LOAD MODEL
-# =========================================================
+# =====================================================
+# 3. LOAD TRAINED MODEL
+# =====================================================
 
-print("Loading EfficientNet-B0...")
+model = models.efficientnet_b0(weights=None)
 
-model = models.efficientnet_b0(
-    weights=None
-)
-
-# Same classifier architecture used during training
 model.classifier = nn.Sequential(
     nn.Dropout(p=0.2),
-    nn.Linear(
-        in_features=1280,
-        out_features=2
-    )
+    nn.Linear(1280, 2)
 )
 
-
-# Check model file
-if not MODEL_PATH.exists():
-
+if not MODEL_PATH.is_file():
     raise FileNotFoundError(
-        f"Model file not found:\n{MODEL_PATH}"
+        f"Model file not found: {MODEL_PATH}"
     )
 
-
-# Load trained weights
 checkpoint = torch.load(
     MODEL_PATH,
     map_location=DEVICE,
@@ -70,499 +57,314 @@ checkpoint = torch.load(
 )
 
 model.load_state_dict(checkpoint)
-
 model = model.to(DEVICE)
-
 model.eval()
 
-print("Model loaded successfully.")
+print("Model loaded successfully!")
 
 
-# =========================================================
+# =====================================================
 # 4. IMAGE PREPROCESSING
-# =========================================================
+# =====================================================
 
 transform = transforms.Compose([
-
     transforms.Resize((224, 224)),
-
     transforms.ToTensor(),
-
     transforms.Normalize(
-        mean=[
-            0.485,
-            0.456,
-            0.406
-        ],
-
-        std=[
-            0.229,
-            0.224,
-            0.225
-        ]
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
     )
 ])
 
 
-# =========================================================
-# 5. IMAGE PREDICTION
-# =========================================================
+# =====================================================
+# 5. PREDICT IMAGE
+# =====================================================
 
 def predict_image(image):
 
-    if image is None:
-
-        return (
-            "No image uploaded.",
-            0.0,
-            0.0
-        )
-
-
-    # Convert input to PIL
-    if not isinstance(image, Image.Image):
-
-        image = Image.fromarray(image)
-
-
-    # Convert to RGB
     image = image.convert("RGB")
 
-
-    # Preprocess
     image_tensor = transform(image)
+    image_tensor = image_tensor.unsqueeze(0).to(DEVICE)
 
-    image_tensor = image_tensor.unsqueeze(0)
-
-    image_tensor = image_tensor.to(DEVICE)
-
-
-    # Prediction
     with torch.no_grad():
+        outputs = model(image_tensor)
+        probabilities = torch.softmax(outputs, dim=1)[0]
 
-        outputs = model(
-            image_tensor
-        )
+    # Original model mapping: 0 = FAKE, 1 = REAL
+    fake_probability = probabilities[0].item()
+    real_probability = probabilities[1].item()
 
-        probabilities = torch.softmax(
-            outputs,
-            dim=1
-        )[0]
-
-
-    # Class mapping
-    # 0 = FAKE
-    # 1 = REAL
-
-    fake_probability = (
-        probabilities[0].item()
-    )
-
-    real_probability = (
-        probabilities[1].item()
-    )
-
-
-    predicted_class = torch.argmax(
-        probabilities
-    ).item()
-
+    predicted_class = torch.argmax(probabilities).item()
 
     if predicted_class == 0:
-
         prediction = "FAKE"
-
         confidence = fake_probability
-
     else:
-
         prediction = "REAL"
-
         confidence = real_probability
 
-
-    result_text = (
-        f"Prediction: {prediction}\n"
-        f"Confidence: {confidence * 100:.2f}%"
-    )
-
-
     return (
-        result_text,
+        prediction,
+        confidence * 100,
         fake_probability * 100,
         real_probability * 100
     )
 
 
-# =========================================================
-# 6. VIDEO PREDICTION
-# =========================================================
+# =====================================================
+# 6. DISPLAY PREDICTION
+# =====================================================
 
-def predict_video(video_path):
+def display_result(image_name, image):
 
-    if video_path is None:
+    prediction, confidence, fake, real = predict_image(image)
 
-        return (
-            "No video uploaded.",
-            0.0,
-            0.0
-        )
+    print("\n========== DETECTION RESULT ==========")
+    print("Image:", image_name)
+    print("Prediction:", prediction)
+    print(f"Confidence: {confidence:.2f}%")
+    print(f"Fake Probability: {fake:.2f}%")
+    print(f"Real Probability: {real:.2f}%")
+    print("======================================")
+
+    return prediction
 
 
-    video_path = Path(
-        video_path
-    )
+# =====================================================
+# 7. IMAGE DETECTION USING FILENAME
+# =====================================================
+
+def image_detection():
+
+    print("\nImage folder:", IMAGE_DIR)
+
+    filename = input(
+        "Enter image name: "
+    ).strip().strip('"')
+
+    # Accept only the filename
+    if not filename or Path(filename).name != filename:
+        print("Please enter only the image filename.")
+        return
+
+    image_file = IMAGE_DIR / filename
+
+    if not image_file.is_file():
+        print("Image not found:", filename)
+        print("Check the test_images folder.")
+        return
+
+    try:
+        with Image.open(image_file) as img:
+            image = img.convert("RGB")
+            display_result(filename, image)
+
+    except Exception as error:
+        print("Error processing image:", error)
 
 
-    cap = cv2.VideoCapture(
-        str(video_path)
-    )
+# =====================================================
+# 8. LIVE WEBCAM DETECTION
+# =====================================================
 
+def live_camera_detection():
+
+    cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
+        print("Error: Webcam could not be opened.")
+        print("Check camera permissions and connection.")
+        return
 
-        return (
-            "Could not open video.",
-            0.0,
-            0.0
-        )
+    print("\nLive camera started!")
+    print("Press SPACE to capture and analyze.")
+    print("Press Q to quit the camera.")
+
+    try:
+        while True:
+
+            ret, frame = cap.read()
+
+            if not ret:
+                print("Could not read camera frame.")
+                break
+
+            cv2.imshow("Live Deepfake Detection", frame)
+
+            key = cv2.waitKey(1) & 0xFF
+
+            # Quit camera
+            if key == ord("q"):
+                break
+
+            # Capture and analyze
+            elif key == 32:
+
+                rgb_frame = cv2.cvtColor(
+                    frame,
+                    cv2.COLOR_BGR2RGB
+                )
+
+                image = Image.fromarray(rgb_frame)
+
+                prediction = display_result(
+                    "Live Webcam Capture",
+                    image
+                )
+
+                print(
+                    "Note: Prediction is a model estimate, "
+                    "not proof of authenticity."
+                )
+
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+        print("Camera closed.")
 
 
-    fps = cap.get(
-        cv2.CAP_PROP_FPS
-    )
+
+# =====================================================
+# VIDEO DETECTION
+# =====================================================
+
+VIDEO_DIR = PROJECT_DIR / "test_videos"
 
 
-    if fps <= 0:
+def video_detection():
 
-        fps = 25
+    print("\nVideo folder:", VIDEO_DIR)
 
+    filename = input(
+        "Enter video name: "
+    ).strip().strip('"')
 
-    # Analyze approximately
-    # one frame per second
+    # Accept filename only
+    if not filename or Path(filename).name != filename:
+        print("Please enter only the video filename.")
+        return
 
-    frame_interval = max(
-        1,
-        int(fps)
-    )
+    video_file = VIDEO_DIR / filename
 
+    if not video_file.is_file():
+        print("Video not found:", filename)
+        return
 
-    frame_number = 0
+    cap = cv2.VideoCapture(str(video_file))
+
+    if not cap.isOpened():
+        print("Error: Could not open video.")
+        return
 
     fake_probabilities = []
-
     real_probabilities = []
 
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS)
 
-    while True:
+        if fps <= 0:
+            fps = 25
 
-        ret, frame = cap.read()
+        # Approximately one frame per second
+        frame_interval = max(1, int(fps))
+        frame_number = 0
 
+        print("\nAnalyzing video... Please wait.")
 
-        if not ret:
+        while True:
+            ret, frame = cap.read()
 
-            break
+            if not ret:
+                break
 
+            if frame_number % frame_interval == 0:
 
-        # Sample frames
-        if frame_number % frame_interval != 0:
+                rgb_frame = cv2.cvtColor(
+                    frame,
+                    cv2.COLOR_BGR2RGB
+                )
+
+                image = Image.fromarray(rgb_frame)
+
+                _, _, fake, real = predict_image(image)
+
+                fake_probabilities.append(fake / 100)
+                real_probabilities.append(real / 100)
 
             frame_number += 1
 
-            continue
+    finally:
+        cap.release()
 
+    if not fake_probabilities:
+        print("No frames could be analyzed.")
+        return
 
-        # OpenCV BGR -> RGB
-        frame_rgb = cv2.cvtColor(
-            frame,
-            cv2.COLOR_BGR2RGB
-        )
-
-
-        image = Image.fromarray(
-            frame_rgb
-        )
-
-
-        # Preprocess
-        image_tensor = transform(
-            image
-        )
-
-        image_tensor = image_tensor.unsqueeze(0)
-
-        image_tensor = image_tensor.to(
-            DEVICE
-        )
-
-
-        # Prediction
-        with torch.no_grad():
-
-            outputs = model(
-                image_tensor
-            )
-
-            probabilities = torch.softmax(
-                outputs,
-                dim=1
-            )[0]
-
-
-        fake_probabilities.append(
-            probabilities[0].item()
-        )
-
-        real_probabilities.append(
-            probabilities[1].item()
-        )
-
-
-        frame_number += 1
-
-
-    cap.release()
-
-
-    # No frames
-    if len(fake_probabilities) == 0:
-
-        return (
-            "No frames could be processed.",
-            0.0,
-            0.0
-        )
-
-
-    # Average probabilities
-    average_fake = np.mean(
-        fake_probabilities
+    # Average frame probabilities
+    average_fake = (
+        sum(fake_probabilities) / len(fake_probabilities)
     )
 
-    average_real = np.mean(
-        real_probabilities
+    average_real = (
+        sum(real_probabilities) / len(real_probabilities)
     )
 
-
-    # Final prediction
     if average_fake > average_real:
-
         prediction = "DEEPFAKE"
-
         confidence = average_fake
-
     else:
-
         prediction = "REAL"
-
         confidence = average_real
 
+    print("\n======= VIDEO DETECTION RESULT =======")
+    print("Video:", filename)
+    print("Prediction:", prediction)
+    print(f"Confidence: {confidence * 100:.2f}%")
+    print(f"Fake Probability: {average_fake * 100:.2f}%")
+    print(f"Real Probability: {average_real * 100:.2f}%")
+    print("Frames analyzed:", len(fake_probabilities))
+    print("======================================")
 
-    result_text = (
-        f"Prediction: {prediction}\n"
-        f"Confidence: {confidence * 100:.2f}%\n"
-        f"Frames analyzed: "
-        f"{len(fake_probabilities)}"
-    )
 
 
-    return (
-        result_text,
-        average_fake * 100,
-        average_real * 100
-    )
+# =====================================================
+# 9. MAIN MENU
+# =====================================================
 
 
-# =========================================================
-# 7. GRADIO APPLICATION
-# =========================================================
 
-with gr.Blocks(
-    title="Deepfake Detection System"
-) as demo:
-
-
-    # =====================================================
-    # HEADER
-    # =====================================================
-
-    gr.Markdown(
-        """
-        # 🔍 Deepfake Detection System
-
-        Detect whether an image or video is likely to be
-        **Real** or **AI-generated / Deepfake**.
-
-        ### Model Information
-
-        **Architecture:** EfficientNet-B0  
-        **Training:** Dataset 1 + Dataset 2  
-        **Test Accuracy:** 89.88%  
-        **ROC-AUC:** 96.98%  
-        **Framework:** PyTorch
-        """
-    )
-
-
-    # =====================================================
-    # IMAGE DETECTION TAB
-    # =====================================================
-
-    with gr.Tab("🖼️ Image Detection"):
-
-
-        gr.Markdown(
-            """
-            Upload an image to detect whether it is
-            **REAL** or **FAKE**.
-            """
-        )
-
-
-        with gr.Row():
-
-
-            image_input = gr.Image(
-                type="pil",
-                label="Upload Image"
-            )
-
-
-            image_output = gr.Textbox(
-                label="Prediction",
-                lines=3
-            )
-
-
-        image_button = gr.Button(
-            "🔍 Analyze Image",
-            variant="primary"
-        )
-
-
-        with gr.Row():
-
-
-            image_fake = gr.Number(
-                label="Fake Probability (%)"
-            )
-
-
-            image_real = gr.Number(
-                label="Real Probability (%)"
-            )
-
-
-        image_button.click(
-            fn=predict_image,
-
-            inputs=image_input,
-
-            outputs=[
-                image_output,
-                image_fake,
-                image_real
-            ]
-        )
-
-
-    # =====================================================
-    # VIDEO DETECTION TAB
-    # =====================================================
-
-    with gr.Tab("🎥 Video Detection"):
-
-
-        gr.Markdown(
-            """
-            Upload a video for frame-based
-            deepfake detection.
-            """
-        )
-
-
-        video_input = gr.Video(
-            label="Upload Video"
-        )
-
-
-        video_button = gr.Button(
-            "🔍 Analyze Video",
-            variant="primary"
-        )
-
-
-        video_output = gr.Textbox(
-            label="Prediction",
-            lines=4
-        )
-
-
-        with gr.Row():
-
-
-            video_fake = gr.Number(
-                label="Average Fake Probability (%)"
-            )
-
-
-            video_real = gr.Number(
-                label="Average Real Probability (%)"
-            )
-
-
-        video_button.click(
-            fn=predict_video,
-
-            inputs=video_input,
-
-            outputs=[
-                video_output,
-                video_fake,
-                video_real
-            ]
-        )
-
-
-    # =====================================================
-    # PROJECT INFORMATION
-    # =====================================================
-
-    
-    # =====================================================
-    # PROJECT INFORMATION
-    # =====================================================
-
-    gr.Markdown(
-        """
-        ---
-
-        ## 📊 Model Performance
-
-        | Metric | Result |
-        |---|---:|
-        | Test Images | 1,433 |
-        | Correct Predictions | 1,288 |
-        | Test Accuracy | **89.88%** |
-        | ROC-AUC | **96.98%** |
-        | FAKE Precision | **93.58%** |
-        | FAKE Recall | **84.74%** |
-        | FAKE F1-Score | **88.94%** |
-        | REAL Precision | **87.04%** |
-        | REAL Recall | **94.63%** |
-        | REAL F1-Score | **90.68%** |
-
-        ### ⚠️ Disclaimer
-
-        This system is a machine-learning research project.
-        Predictions should not be treated as definitive proof
-        that an image or video has been manipulated.
-
-        **Video detection uses frame sampling and
-        probability averaging.**
-        """
-    )
+# =====================================================
+# MAIN MENU
+# =====================================================
 
 if __name__ == "__main__":
 
-    demo.launch()
+    while True:
+
+        print("\n================================")
+        print("   DEEPFAKE DETECTION SYSTEM")
+        print("================================")
+        print("1. Detect image from folder")
+        print("2. Live webcam detection")
+        print("3. Detect video from folder")
+        print("4. Exit")
+
+        choice = input("Enter your choice (1-4): ").strip()
+
+        if choice == "1":
+            image_detection()
+
+        elif choice == "2":
+            live_camera_detection()
+
+        elif choice == "3":
+            video_detection()
+
+        elif choice == "4":
+            print("Exiting Deepfake Detection System.")
+            break
+
+        else:
+            print("Invalid choice. Please enter 1, 2, 3, or 4.")
